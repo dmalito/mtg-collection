@@ -30,10 +30,52 @@ router.get('/search', async (req, res) => {
     const response = await fetch(scryfallUrl);
 
     if (!response.ok) {
+      if (response.status === 404) {
+        // No cards found
+        return res.json({ total: 0, cards: [] });
+      }
       return res.status(response.status).json({ error: 'Scryfall API error' });
     }
 
     const data = await response.json();
+
+    // Deduplicate by illustration_id (handles same art, different rarities)
+    const seenArt = new Map();
+    const dedupedCards = [];
+
+    for (const card of data.data) {
+      const artId = card.illustration_id;
+      
+      if (!artId) {
+        // No art ID, include it anyway
+        dedupedCards.push(card);
+        continue;
+      }
+
+      const existing = seenArt.get(artId);
+      
+      if (!existing) {
+        // First time seeing this art
+        seenArt.set(artId, card);
+        dedupedCards.push(card);
+      } else {
+        // We've seen this art before
+        // Keep the one with lower rarity (common < uncommon < rare < mythic)
+        const rarityOrder = { common: 0, uncommon: 1, rare: 2, mythic: 3, special: 4, bonus: 5 };
+        const currentRarity = rarityOrder[card.rarity] || 99;
+        const existingRarity = rarityOrder[existing.rarity] || 99;
+        
+        if (currentRarity < existingRarity) {
+          // Replace with lower rarity version
+          seenArt.set(artId, card);
+          const index = dedupedCards.indexOf(existing);
+          if (index !== -1) {
+            dedupedCards[index] = card;
+          }
+        }
+        // Otherwise, skip this duplicate
+      }
+    }
 
     // Get all owned scryfall IDs
     db.all('SELECT scryfall_id, quantity FROM owned_cards', (err, owned) => {
@@ -47,13 +89,13 @@ router.get('/search', async (req, res) => {
       });
 
       // Annotate cards with owned status
-      const cards = data.data.map(card => ({
+      const cards = dedupedCards.map(card => ({
         ...card,
         owned: ownedMap[card.id] || 0
       }));
 
       res.json({
-        total: data.total_cards,
+        total: cards.length,
         cards: cards
       });
     });
@@ -63,7 +105,7 @@ router.get('/search', async (req, res) => {
   }
 });
 
-// Get single card details (unchanged)
+// Get single card details
 router.get('/:scryfallId', async (req, res) => {
   const { scryfallId } = req.params;
 

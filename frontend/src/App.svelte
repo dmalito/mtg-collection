@@ -48,8 +48,11 @@
   async function loadCards() {
     loading = true;
     error = null;
+    console.log('Loading cards:', { selectedType, selectedRarity, includeTokens });
+    
     try {
       const result = await api.searchCards(selectedType, selectedRarity, includeTokens);
+      console.log('Received cards:', result.cards.length);
       cards = result.cards || [];
       applyFilters();
     } catch (e) {
@@ -87,6 +90,7 @@
   function selectType(type) {
     selectedType = type;
     selectedRarity = null;
+    searchQuery = ''; // Also clear search
     loadCards();
   }
 

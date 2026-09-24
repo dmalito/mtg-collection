@@ -2,6 +2,50 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 
+// Aggregate collection stats, for the shelf hub. Must stay above the
+// '/:type' route below -- Express matches in declaration order, and a
+// 'summary' route placed after it would be swallowed as a type and trigger
+// a live Scryfall search for "t:summary".
+router.get('/summary', (req, res) => {
+  db.get(
+    `SELECT COUNT(*) AS owned, COALESCE(SUM(quantity), 0) AS copies
+     FROM owned_cards`,
+    (err, totals) => {
+      if (err) {
+        return res.status(500).json({ error: 'Database error' });
+      }
+
+      db.all('SELECT name FROM tracked_types ORDER BY name', (err2, types) => {
+        if (err2) {
+          return res.status(500).json({ error: 'Database error' });
+        }
+
+        db.get(
+          `SELECT scryfall_id, name FROM owned_cards
+           ORDER BY acquired_at DESC, id DESC LIMIT 1`,
+          (err3, card) => {
+            if (err3) {
+              return res.status(500).json({ error: 'Database error' });
+            }
+            res.json({
+              app: 'mtg-collection',
+              count: totals.owned,
+              copies: totals.copies,
+              types: types.map((t) => t.name),
+              // Scryfall serves the image straight off a card id -- nothing
+              // image-related is stored locally (see owned_cards above).
+              cover: card
+                ? `https://api.scryfall.com/cards/${card.scryfall_id}?format=image&version=art_crop`
+                : null,
+              cover_label: card ? card.name : null,
+            });
+          }
+        );
+      });
+    }
+  );
+});
+
 // Get collection stats for a specific type
 router.get('/:type', async (req, res) => {
   const { type } = req.params;
