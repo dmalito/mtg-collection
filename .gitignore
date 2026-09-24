@@ -37,3 +37,4 @@ pm2-logs/
 # Docker bind-mounted data
 data/*.db
 data/*.db-*
+data/*.db.bak

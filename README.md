@@ -58,13 +58,24 @@ Uses Node's built-in test runner against a temp db, with Scryfall stubbed.
   `backend/scryfall.js`, never call `fetch` on Scryfall directly.
 - The frontend is built with a relative Vite `base` and a relative API path,
   so it works at `/` or behind any path prefix.
+- Search and stats collapse reprints of the same art down to one entry
+  (`backend/artDedupe.js`), keeping the lowest-rarity printing. A `rarity`
+  filter is applied *after* that collapse, to the surviving printing's own
+  rarity -- so it means "this art's cheapest printing is this rarity," not
+  "Scryfall has a printing at this rarity." Owned status is matched by art
+  (any printing you own of that art counts), not by exact printing, via an
+  `illustration_id` column on `owned_cards`. Rows added before that column
+  existed need a one-time backfill: `docker compose exec mtg-collection node
+  scripts/backfill-illustration-id.js`.
 
 ## Project Structure
 ```
 mtg-collection/
 ├── backend/
 │   ├── routes/          # API routes
+│   ├── scripts/         # One-off maintenance scripts (e.g. backfill)
 │   ├── test/            # API tests
+│   ├── artDedupe.js     # Art dedupe + art-based owned matching (shared)
 │   ├── db.js            # SQLite setup (DATA_DIR env for the db location)
 │   ├── scryfall.js      # Scryfall fetch wrapper (User-Agent)
 │   ├── server.js        # Express server

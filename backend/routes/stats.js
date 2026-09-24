@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { scryfallFetch } = require('../scryfall');
+const { dedupeByArt, buildOwnedIndex, getOwned, buildTypeQuery } = require('../artDedupe');
 
 // Aggregate collection stats, for the shelf hub. Must stay above the
 // '/:type' route below -- Express matches in declaration order, and a
@@ -50,12 +51,14 @@ router.get('/summary', (req, res) => {
 // Get collection stats for a specific type
 router.get('/:type', async (req, res) => {
   const { type } = req.params;
+  const { includeTokens } = req.query;
 
   try {
-    // Fetch all cards of this type from Scryfall
-    const query = `t:${type} game:paper`;
+    // Same query builder as /api/cards/search, so the two endpoints can't
+    // silently disagree on which cards are in scope for a type.
+    const query = buildTypeQuery({ type, includeTokens });
     const scryfallUrl = `https://api.scryfall.com/cards/search?q=${encodeURIComponent(query)}&unique=art`;
-    
+
     const response = await scryfallFetch(scryfallUrl);
 
     if (!response.ok) {
@@ -63,39 +66,47 @@ router.get('/:type', async (req, res) => {
     }
 
     const data = await response.json();
-    const allCards = data.data;
 
-    // Get owned cards
-    db.all('SELECT scryfall_id FROM owned_cards', (err, owned) => {
+    // Same dedupe as /api/cards/search -- one entry per unique art
+    const dedupedCards = dedupeByArt(data.data);
+
+    // Get owned printings (id, art, quantity)
+    db.all('SELECT scryfall_id, illustration_id, quantity FROM owned_cards', (err, owned) => {
       if (err) {
         return res.status(500).json({ error: 'Database error' });
       }
 
-      const ownedIds = new Set(owned.map(c => c.scryfall_id));
+      const ownedIndex = buildOwnedIndex(owned);
+      // "Owned" here means "this art is owned" (a presence check), not a
+      // summed quantity -- keeps totals counting distinct arts, matching
+      // what /api/cards/search's total/owned-count represent.
+      const isOwned = card => getOwned(card, ownedIndex) > 0;
 
       // Calculate stats by rarity
       const byRarity = {};
       const rarities = ['common', 'uncommon', 'rare', 'mythic'];
 
       rarities.forEach(rarity => {
-        const cardsOfRarity = allCards.filter(c => c.rarity === rarity);
-        const ownedOfRarity = cardsOfRarity.filter(c => ownedIds.has(c.id));
+        const cardsOfRarity = dedupedCards.filter(c => c.rarity === rarity);
+        const ownedOfRarity = cardsOfRarity.filter(isOwned);
 
         byRarity[rarity] = {
           total: cardsOfRarity.length,
           owned: ownedOfRarity.length,
-          percentage: cardsOfRarity.length > 0 
+          percentage: cardsOfRarity.length > 0
             ? Math.round((ownedOfRarity.length / cardsOfRarity.length) * 100)
             : 0
         };
       });
 
+      const ownedCount = dedupedCards.filter(isOwned).length;
+
       res.json({
         type,
-        total: allCards.length,
-        owned: owned.length,
-        percentage: allCards.length > 0
-          ? Math.round((owned.length / allCards.length) * 100)
+        total: dedupedCards.length,
+        owned: ownedCount,
+        percentage: dedupedCards.length > 0
+          ? Math.round((ownedCount / dedupedCards.length) * 100)
           : 0,
         byRarity
       });

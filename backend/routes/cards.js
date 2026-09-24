@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { scryfallFetch } = require('../scryfall');
+const { dedupeByArt, buildOwnedIndex, getOwned, buildTypeQuery } = require('../artDedupe');
 
 // Search cards from Scryfall with owned status
 router.get('/search', async (req, res) => {
@@ -12,21 +13,12 @@ router.get('/search', async (req, res) => {
   }
 
   try {
-    // Build Scryfall query
-    let query = `t:${type}`;
-    if (rarity) {
-      query += ` r:${rarity}`;
-    }
-    
-    // Include or exclude tokens
-    if (includeTokens !== 'true') {
-      query += ' -t:token';
-    }
-    
-    query += ' game:paper'; // Only paper-legal cards
-
+    // rarity is deliberately not sent to Scryfall -- dedupe needs to see
+    // every rarity of an art to know which printing is the lowest, so
+    // rarity is applied as a filter after dedupe, below.
+    const query = buildTypeQuery({ type, includeTokens });
     const scryfallUrl = `https://api.scryfall.com/cards/search?q=${encodeURIComponent(query)}&unique=art`;
-    
+
     const response = await scryfallFetch(scryfallUrl);
 
     if (!response.ok) {
@@ -39,59 +31,28 @@ router.get('/search', async (req, res) => {
 
     const data = await response.json();
 
-    // Deduplicate by illustration_id (handles same art, different rarities)
-    const seenArt = new Map();
-    const dedupedCards = [];
+    // One entry per unique art, keeping the lowest-rarity printing
+    const dedupedCards = dedupeByArt(data.data);
 
-    for (const card of data.data) {
-      const artId = card.illustration_id;
-      
-      if (!artId) {
-        // No art ID, include it anyway
-        dedupedCards.push(card);
-        continue;
-      }
+    // A rarity filter now means "this art's cheapest printing is this
+    // rarity" -- applied to the deduped survivors, not to Scryfall's query.
+    const filteredCards = rarity
+      ? dedupedCards.filter(card => card.rarity === rarity)
+      : dedupedCards;
 
-      const existing = seenArt.get(artId);
-      
-      if (!existing) {
-        // First time seeing this art
-        seenArt.set(artId, card);
-        dedupedCards.push(card);
-      } else {
-        // We've seen this art before
-        // Keep the one with lower rarity (common < uncommon < rare < mythic)
-        const rarityOrder = { common: 0, uncommon: 1, rare: 2, mythic: 3, special: 4, bonus: 5 };
-        const currentRarity = rarityOrder[card.rarity] ?? 99;
-        const existingRarity = rarityOrder[existing.rarity] ?? 99;
-        
-        if (currentRarity < existingRarity) {
-          // Replace with lower rarity version
-          seenArt.set(artId, card);
-          const index = dedupedCards.indexOf(existing);
-          if (index !== -1) {
-            dedupedCards[index] = card;
-          }
-        }
-        // Otherwise, skip this duplicate
-      }
-    }
-
-    // Get all owned scryfall IDs
-    db.all('SELECT scryfall_id, quantity FROM owned_cards', (err, owned) => {
+    // Get all owned printings (id, art, quantity)
+    db.all('SELECT scryfall_id, illustration_id, quantity FROM owned_cards', (err, owned) => {
       if (err) {
         return res.status(500).json({ error: 'Database error' });
       }
 
-      const ownedMap = {};
-      owned.forEach(card => {
-        ownedMap[card.scryfall_id] = card.quantity;
-      });
+      const ownedIndex = buildOwnedIndex(owned);
 
-      // Annotate cards with owned status
-      const cards = dedupedCards.map(card => ({
+      // Annotate cards with owned status -- matched by art, so owning any
+      // reprint of the same illustration credits the surviving entry.
+      const cards = filteredCards.map(card => ({
         ...card,
-        owned: ownedMap[card.id] || 0
+        owned: getOwned(card, ownedIndex)
       }));
 
       res.json({

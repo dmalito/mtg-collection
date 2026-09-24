@@ -50,6 +50,12 @@ beforeEach(async () => {
   await new Promise((resolve) => db.run("DELETE FROM tracked_types WHERE name != 'dinosaur'", resolve));
 });
 
+function dbGet(sql, params) {
+  return new Promise((resolve, reject) => {
+    db.get(sql, params, (err, row) => (err ? reject(err) : resolve(row)));
+  });
+}
+
 async function call(method, url, body) {
   const res = await realFetch(base + url, {
     method,
@@ -106,6 +112,11 @@ test('collection: add, re-add sums quantity, patch, delete', async () => {
   assert.equal(r.status, 200);
   assert.equal(r.body.name, 'Test Dino');
 
+  // illustration_id (the art-based-owned-matching migration column) is
+  // stored on insert.
+  let row = await dbGet('SELECT illustration_id FROM owned_cards WHERE scryfall_id = ?', ['id-1']);
+  assert.equal(row.illustration_id, 'art-1');
+
   await call('POST', '/api/collection', { scryfallId: 'id-1', quantity: 3 });
   r = await call('GET', '/api/collection');
   assert.equal(r.body.length, 1);
@@ -146,21 +157,46 @@ test('cards/search: requires type, treats Scryfall 404 as empty', async () => {
   assert.deepEqual(r.body, { total: 0, cards: [] });
 });
 
-test('cards/search: builds the Scryfall query from filters', async () => {
+test('cards/search: builds the Scryfall query from filters, never sends rarity', async () => {
   let seen;
   stubScryfall((url) => {
     seen = decodeURIComponent(new URL(url).searchParams.get('q'));
     return { status: 200, body: { data: [] } };
   });
 
+  // rarity is applied after dedupe (see below), never sent to Scryfall --
+  // otherwise dedupe would never see the other rarities of an art to
+  // compare against.
   await call('GET', '/api/cards/search?type=dragon&rarity=rare');
-  assert.equal(seen, 't:dragon r:rare -t:token game:paper');
+  assert.equal(seen, 't:dragon -t:token game:paper');
 
   await call('GET', '/api/cards/search?type=dragon&includeTokens=true');
   assert.equal(seen, 't:dragon game:paper');
 });
 
-test('cards/search: dedupes same art keeping lowest rarity, annotates owned', async () => {
+test('cards/search: rarity filter applies after dedupe, to the representative rarity', async () => {
+  stubScryfall((url) => ({
+    status: 200,
+    body: {
+      data: [
+        card({ id: 'a-rare', rarity: 'rare', illustration_id: 'art-A' }),
+        card({ id: 'a-common', rarity: 'common', illustration_id: 'art-A' }),
+        card({ id: 'b', rarity: 'common', illustration_id: 'art-B' }),
+      ],
+    },
+  }));
+
+  // art-A's cheapest printing is common, so it survives dedupe as
+  // 'a-common' -- a rare filter must not surface it just because a rare
+  // printing of that art also exists.
+  let r = await call('GET', '/api/cards/search?type=dinosaur&rarity=rare');
+  assert.deepEqual(r.body.cards.map((c) => c.id), []);
+
+  r = await call('GET', '/api/cards/search?type=dinosaur&rarity=common');
+  assert.deepEqual(r.body.cards.map((c) => c.id).sort(), ['a-common', 'b']);
+});
+
+test('cards/search: dedupes same art keeping lowest rarity, annotates owned by art', async () => {
   stubScryfall((url) => {
     if (url.includes('/cards/search')) {
       return {
@@ -175,15 +211,18 @@ test('cards/search: dedupes same art keeping lowest rarity, annotates owned', as
         },
       };
     }
-    return { status: 200, body: card({ id: 'b' }) };
+    return { status: 200, body: card({ id: 'a-rare', rarity: 'rare', illustration_id: 'art-A' }) };
   });
-  await call('POST', '/api/collection', { scryfallId: 'b', quantity: 2 });
+  // Own the *rare* printing of art-A -- the *common* printing is what
+  // survives dedupe, so this only proves anything if owned status is
+  // matched by art rather than by the surviving printing's exact id.
+  await call('POST', '/api/collection', { scryfallId: 'a-rare', quantity: 2 });
 
   const r = await call('GET', '/api/cards/search?type=dinosaur');
   assert.equal(r.body.total, 3);
   assert.deepEqual(r.body.cards.map((c) => c.id).sort(), ['a-common', 'b', 'c']);
-  assert.equal(r.body.cards.find((c) => c.id === 'b').owned, 2);
-  assert.equal(r.body.cards.find((c) => c.id === 'a-common').owned, 0);
+  assert.equal(r.body.cards.find((c) => c.id === 'a-common').owned, 2);
+  assert.equal(r.body.cards.find((c) => c.id === 'b').owned, 0);
 });
 
 test('cards/:id: 404 from Scryfall, and owned count on hit', async () => {
@@ -224,14 +263,17 @@ test('stats/:type: percentages by rarity', async () => {
           status: 200,
           body: {
             data: [
-              card({ id: 'x1', rarity: 'common' }),
-              card({ id: 'x2', rarity: 'common' }),
-              card({ id: 'x3', rarity: 'rare' }),
-              card({ id: 'x4', rarity: 'rare' }),
+              // Distinct illustration_ids -- these are 4 independent
+              // arts, not reprints of each other, so dedupe should be a
+              // no-op here.
+              card({ id: 'x1', rarity: 'common', illustration_id: 'art-x1' }),
+              card({ id: 'x2', rarity: 'common', illustration_id: 'art-x2' }),
+              card({ id: 'x3', rarity: 'rare', illustration_id: 'art-x3' }),
+              card({ id: 'x4', rarity: 'rare', illustration_id: 'art-x4' }),
             ],
           },
         }
-      : { status: 200, body: card({ id: 'x1' }) }
+      : { status: 200, body: card({ id: 'x1', illustration_id: 'art-x1' }) }
   );
   await call('POST', '/api/collection', { scryfallId: 'x1' });
 
@@ -241,6 +283,44 @@ test('stats/:type: percentages by rarity', async () => {
   assert.equal(r.body.percentage, 25);
   assert.equal(r.body.byRarity.common.percentage, 50);
   assert.equal(r.body.byRarity.rare.percentage, 0);
+});
+
+test('stats/:type: uses shared dedupe, art-based owned matching, and excludes tokens by default', async () => {
+  let seenQuery;
+  stubScryfall((url) => {
+    if (url.includes('/cards/search')) {
+      seenQuery = decodeURIComponent(new URL(url).searchParams.get('q'));
+      return {
+        status: 200,
+        body: {
+          data: [
+            card({ id: 'a-rare', rarity: 'rare', illustration_id: 'art-A' }),
+            card({ id: 'a-common', rarity: 'common', illustration_id: 'art-A' }),
+            card({ id: 'x1', rarity: 'common', illustration_id: 'art-x1' }),
+            card({ id: 'x2', rarity: 'rare', illustration_id: 'art-x2' }),
+          ],
+        },
+      };
+    }
+    return { status: 200, body: card({ id: 'a-rare', rarity: 'rare', illustration_id: 'art-A' }) };
+  });
+  // Own only the rare printing of art-A -- the common printing (a-common)
+  // is the deduped survivor, and should get the owned credit.
+  await call('POST', '/api/collection', { scryfallId: 'a-rare', quantity: 1 });
+
+  const r = await call('GET', '/api/stats/dinosaur');
+  assert.equal(seenQuery, 't:dinosaur -t:token game:paper');
+
+  // Deduped counts: 3 distinct arts total (art-A survives as common),
+  // not the 4 raw Scryfall rows.
+  assert.equal(r.body.total, 3);
+  assert.equal(r.body.byRarity.common.total, 2); // a-common, x1
+  assert.equal(r.body.byRarity.common.owned, 1); // a-common, via the rare printing owned
+  assert.equal(r.body.byRarity.rare.total, 1); // x2 only -- a-rare lost dedupe to a-common
+  assert.equal(r.body.byRarity.rare.owned, 0); // credit landed on common, not double-counted here
+
+  await call('GET', '/api/stats/dinosaur?includeTokens=true');
+  assert.equal(seenQuery, 't:dinosaur game:paper');
 });
 
 test('every Scryfall request sends a custom User-Agent and Accept header', async () => {

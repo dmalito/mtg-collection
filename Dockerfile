@@ -23,8 +23,9 @@ ENV DATA_DIR=/app/data
 COPY backend/package*.json ./
 RUN npm ci --omit=dev
 
-COPY backend/db.js backend/scryfall.js backend/server.js ./
+COPY backend/db.js backend/scryfall.js backend/artDedupe.js backend/server.js ./
 COPY backend/routes/ ./routes/
+COPY backend/scripts/ ./scripts/
 
 # Built frontend assets, served statically by Express
 COPY --from=frontend-build /app/frontend/dist ./public
