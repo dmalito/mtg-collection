@@ -1,0 +1,9 @@
+services:
+  mtg-collection:
+    build: .
+    container_name: mtg-collection
+    ports:
+      - "5006:5006"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

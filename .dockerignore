@@ -1,0 +1,8 @@
+**/node_modules
+frontend/dist
+backend/*.db
+backend/test
+data
+.git
+.vscode
+*.log

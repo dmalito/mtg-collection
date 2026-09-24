@@ -33,3 +33,7 @@ pm2-logs/
 # Temporary files
 *.tmp
 .cache/
+
+# Docker bind-mounted data
+data/*.db
+data/*.db-*

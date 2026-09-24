@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const { scryfallFetch } = require('../scryfall');
 
 // Get all owned cards
 router.get('/', (req, res) => {
@@ -22,8 +23,7 @@ router.post('/', async (req, res) => {
 
   try {
     // Fetch card details from Scryfall
-    const fetch = (await import('node-fetch')).default;
-    const response = await fetch(`https://api.scryfall.com/cards/${scryfallId}`);
+    const response = await scryfallFetch(`https://api.scryfall.com/cards/${scryfallId}`);
     
     if (!response.ok) {
       return res.status(404).json({ error: 'Card not found on Scryfall' });

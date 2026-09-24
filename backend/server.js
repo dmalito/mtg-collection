@@ -1,9 +1,11 @@
 const express = require('express');
 const cors = require('cors');
-const db = require('./db');
+const path = require('path');
+const fs = require('fs');
+require('./db');
 
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 
 // Middleware
 app.use(cors());
@@ -20,7 +22,18 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`MTG API server running on http://0.0.0.0:${PORT}`);
-  console.log(`Access from your network: http://192.168.0.16:${PORT}`);
-});
+// In the Docker image the built frontend sits in ./public and is served from
+// here. In dev there's no ./public -- Vite serves the frontend and proxies /api.
+const publicDir = path.join(__dirname, 'public');
+if (fs.existsSync(publicDir)) {
+  app.use(express.static(publicDir));
+}
+
+// Only listen when run directly, so tests can require() the app
+if (require.main === module) {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`MTG API server running on http://0.0.0.0:${PORT}`);
+  });
+}
+
+module.exports = app;

@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const { scryfallFetch } = require('../scryfall');
 
 // Aggregate collection stats, for the shelf hub. Must stay above the
 // '/:type' route below -- Express matches in declaration order, and a
@@ -55,8 +56,7 @@ router.get('/:type', async (req, res) => {
     const query = `t:${type} game:paper`;
     const scryfallUrl = `https://api.scryfall.com/cards/search?q=${encodeURIComponent(query)}&unique=art`;
     
-    const fetch = (await import('node-fetch')).default;
-    const response = await fetch(scryfallUrl);
+    const response = await scryfallFetch(scryfallUrl);
 
     if (!response.ok) {
       return res.status(404).json({ error: 'Type not found or no cards' });

@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const { scryfallFetch } = require('../scryfall');
 
 // Search cards from Scryfall with owned status
 router.get('/search', async (req, res) => {
@@ -26,8 +27,7 @@ router.get('/search', async (req, res) => {
 
     const scryfallUrl = `https://api.scryfall.com/cards/search?q=${encodeURIComponent(query)}&unique=art`;
     
-    const fetch = (await import('node-fetch')).default;
-    const response = await fetch(scryfallUrl);
+    const response = await scryfallFetch(scryfallUrl);
 
     if (!response.ok) {
       if (response.status === 404) {
@@ -62,8 +62,8 @@ router.get('/search', async (req, res) => {
         // We've seen this art before
         // Keep the one with lower rarity (common < uncommon < rare < mythic)
         const rarityOrder = { common: 0, uncommon: 1, rare: 2, mythic: 3, special: 4, bonus: 5 };
-        const currentRarity = rarityOrder[card.rarity] || 99;
-        const existingRarity = rarityOrder[existing.rarity] || 99;
+        const currentRarity = rarityOrder[card.rarity] ?? 99;
+        const existingRarity = rarityOrder[existing.rarity] ?? 99;
         
         if (currentRarity < existingRarity) {
           // Replace with lower rarity version
@@ -110,8 +110,7 @@ router.get('/:scryfallId', async (req, res) => {
   const { scryfallId } = req.params;
 
   try {
-    const fetch = (await import('node-fetch')).default;
-    const response = await fetch(`https://api.scryfall.com/cards/${scryfallId}`);
+    const response = await scryfallFetch(`https://api.scryfall.com/cards/${scryfallId}`);
 
     if (!response.ok) {
       return res.status(404).json({ error: 'Card not found' });

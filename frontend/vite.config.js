@@ -3,7 +3,7 @@ import { svelte } from '@sveltejs/vite-plugin-svelte'
 
 export default defineConfig({
   plugins: [svelte()],
-  base: '/mtg/', // Important for proper asset paths
+  base: './', // relative, so it works at / (Docker) or under any prefix
   server: {
     host: '0.0.0.0',
     port: 5173,

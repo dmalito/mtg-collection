@@ -1,4 +1,5 @@
-const API_BASE = '/api';
+// Relative (no leading slash) so it resolves under whatever path the app is served from
+const API_BASE = 'api';
 
 export const api = {
   // Cards

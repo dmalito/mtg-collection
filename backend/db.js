@@ -1,7 +1,8 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 
-const dbPath = path.join(__dirname, 'mtg.db');
+// DATA_DIR lets the Docker image keep the db on a bind-mounted volume
+const dbPath = path.join(process.env.DATA_DIR || __dirname, 'mtg.db');
 const db = new sqlite3.Database(dbPath);
 
 // Initialize database schema
