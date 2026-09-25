@@ -12,7 +12,16 @@ const RARITY_LABELS = { common: 'Common', uncommon: 'Uncommon', rare: 'Rare', my
 
 const titleCase = (text) => text.charAt(0).toUpperCase() + text.slice(1);
 
-const byName = (a, b) => a.name.localeCompare(b.name) || a.set.localeCompare(b.set);
+// Collector numbers can carry letters ("123a"); order by the leading digits
+const collectorNumber = (card) => parseInt(card.collector_number, 10) || 0;
+
+// Newest release first, same as the app's default sort (collector number
+// breaks ties within a set), with name as the final tiebreak so the order
+// is stable.
+const byRelease = (a, b) =>
+  (b.released_at || '').localeCompare(a.released_at || '') ||
+  collectorNumber(b) - collectorNumber(a) ||
+  a.name.localeCompare(b.name);
 
 // categories: [{ id, cards }] where each card already has `.owned`.
 // Tokens are all "common", so rarity headings there would be noise -- they
@@ -20,10 +29,11 @@ const byName = (a, b) => a.name.localeCompare(b.name) || a.set.localeCompare(b.s
 function buildChecklistModel({ type, categories, upcoming, generatedAt }) {
   const sections = categories.map(({ id, cards }) => {
     const items = (list) =>
-      list.sort(byName).map((card) => ({
+      list.sort(byRelease).map((card) => ({
         name: card.name,
         set: card.set,
         number: card.collector_number,
+        releasedAt: card.released_at,
         owned: card.owned,
         upcoming: Boolean(card.upcoming),
       }));
@@ -136,13 +146,14 @@ function renderChecklistPdf(model, out) {
   }
 
   function groupHeading(text, owned, total) {
+    const stats = `${owned} / ${total}  (${percent(owned, total)}%)`;
     const x = colX(col);
     doc.font('Helvetica-Bold').fontSize(10.5).fillColor('#000000').text(text, x, y, { lineBreak: false });
     doc
       .font('Helvetica')
       .fontSize(9)
       .fillColor('#666666')
-      .text(`${owned} / ${total}`, x, y + 1.5, { width: colW, align: 'right', lineBreak: false });
+      .text(stats, x, y + 1.5, { width: colW, align: 'right', lineBreak: false });
     doc
       .moveTo(x, y + 15)
       .lineTo(x + colW, y + 15)

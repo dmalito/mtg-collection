@@ -246,7 +246,6 @@
   <header>
     <div class="header-top">
       <h1>🃏 MTG Dinosaur Collection</h1>
-      <a href="/dashboard" class="back-link">← Back to Dashboard</a>
       <!-- Full checklist of every category with owned cards ticked; ignores the
            on-screen filters, but follows the Upcoming toggle -->
       <a href={checklistUrl} class="export-link" download>⬇ Export PDF checklist</a>
@@ -486,18 +485,8 @@
     color: #fff;
   }
 
-  .back-link {
-    color: #999;
-    text-decoration: none;
-    font-size: 0.9em;
-  }
-
-  .back-link:hover {
-    color: #fff;
-  }
-
   .export-link {
-    margin-left: 20px;
+    display: inline-block;
     padding: 6px 14px;
     background: #2a2a2a;
     border-radius: 8px;

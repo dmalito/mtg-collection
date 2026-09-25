@@ -497,8 +497,8 @@ test('checklist model: sections per category, split by rarity in order, tokens u
         id: 'main',
         cards: [
           { ...owned('m-rare', { name: 'Zed', rarity: 'rare' }), owned: 2 },
-          { ...owned('m-common-b', { name: 'Bravo', rarity: 'common' }), owned: 0 },
-          { ...owned('m-common-a', { name: 'Alpha', rarity: 'common' }), owned: 1 },
+          { ...owned('m-common-b', { name: 'Bravo', rarity: 'common', released_at: '2023-03-03' }), owned: 0 },
+          { ...owned('m-common-a', { name: 'Alpha', rarity: 'common', released_at: '2019-05-01' }), owned: 1 },
           { ...owned('m-mythic', { name: 'Yak', rarity: 'mythic' }), owned: 0 },
         ],
       },
@@ -529,14 +529,42 @@ test('checklist model: sections per category, split by rarity in order, tokens u
     ['Rare', 1, 1],
     ['Mythic', 0, 1],
   ]);
-  // alphabetical within a rarity, quantity carried through
-  assert.deepEqual(main.groups[0].items.map((i) => i.name), ['Alpha', 'Bravo']);
+  // newest release first within a rarity (not alphabetical), quantity carried through
+  assert.deepEqual(main.groups[0].items.map((i) => i.name), ['Bravo', 'Alpha']);
   assert.equal(main.groups[1].items[0].owned, 2);
 
   // tokens are all common, so one unlabeled group
   const tokens = model.sections[2];
   assert.equal(tokens.groups.length, 1);
   assert.equal(tokens.groups[0].label, null);
+});
+
+test('checklist model: same-day releases order by collector number, highest first, letters ignored', () => {
+  const at = (id, number, over) => ({
+    ...card({ id, illustration_id: 'art-' + id, collector_number: number, released_at: '2024-02-02', ...over }),
+    owned: 0,
+  });
+  const model = buildChecklistModel({
+    type: 'dinosaur',
+    generatedAt: '2026-09-25',
+    categories: [
+      {
+        id: 'main',
+        cards: [
+          at('a', '9', { name: 'Nine' }),
+          at('b', '123a', { name: 'Showcase' }),
+          at('c', '45', { name: 'Forty-five' }),
+          at('d', '1', { name: 'Older set', released_at: '2020-01-01' }),
+        ],
+      },
+    ],
+  });
+  assert.deepEqual(model.sections[0].groups[0].items.map((i) => i.name), [
+    'Showcase',
+    'Forty-five',
+    'Nine',
+    'Older set',
+  ]);
 });
 
 test('checklist model: empty category has no groups', () => {
