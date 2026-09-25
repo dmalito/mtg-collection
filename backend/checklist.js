@@ -15,12 +15,12 @@ const titleCase = (text) => text.charAt(0).toUpperCase() + text.slice(1);
 // Collector numbers can carry letters ("123a"); order by the leading digits
 const collectorNumber = (card) => parseInt(card.collector_number, 10) || 0;
 
-// Newest release first, same as the app's default sort (collector number
-// breaks ties within a set), with name as the final tiebreak so the order
-// is stable.
+// Oldest release first, with collector number (ascending) ordering cards
+// released the same day, and name as the final tiebreak so the order is
+// stable.
 const byRelease = (a, b) =>
-  (b.released_at || '').localeCompare(a.released_at || '') ||
-  collectorNumber(b) - collectorNumber(a) ||
+  (a.released_at || '').localeCompare(b.released_at || '') ||
+  collectorNumber(a) - collectorNumber(b) ||
   a.name.localeCompare(b.name);
 
 // categories: [{ id, cards }] where each card already has `.owned`.

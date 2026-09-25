@@ -529,8 +529,8 @@ test('checklist model: sections per category, split by rarity in order, tokens u
     ['Rare', 1, 1],
     ['Mythic', 0, 1],
   ]);
-  // newest release first within a rarity (not alphabetical), quantity carried through
-  assert.deepEqual(main.groups[0].items.map((i) => i.name), ['Bravo', 'Alpha']);
+  // oldest release first within a rarity (not alphabetical), quantity carried through
+  assert.deepEqual(main.groups[0].items.map((i) => i.name), ['Alpha', 'Bravo']);
   assert.equal(main.groups[1].items[0].owned, 2);
 
   // tokens are all common, so one unlabeled group
@@ -539,7 +539,7 @@ test('checklist model: sections per category, split by rarity in order, tokens u
   assert.equal(tokens.groups[0].label, null);
 });
 
-test('checklist model: same-day releases order by collector number, highest first, letters ignored', () => {
+test('checklist model: same-day releases order by collector number, lowest first, letters ignored', () => {
   const at = (id, number, over) => ({
     ...card({ id, illustration_id: 'art-' + id, collector_number: number, released_at: '2024-02-02', ...over }),
     owned: 0,
@@ -560,10 +560,10 @@ test('checklist model: same-day releases order by collector number, highest firs
     ],
   });
   assert.deepEqual(model.sections[0].groups[0].items.map((i) => i.name), [
-    'Showcase',
-    'Forty-five',
-    'Nine',
     'Older set',
+    'Nine',
+    'Forty-five',
+    'Showcase',
   ]);
 });
 
