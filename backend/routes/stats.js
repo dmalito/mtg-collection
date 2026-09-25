@@ -2,8 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { scryfallFetch } = require('../scryfall');
-const { buildOwnedIndex, getOwned } = require('../artDedupe');
-const { CATEGORIES, buildCatalog } = require('../catalog');
+const { CATEGORIES, buildCatalog, annotateOwned } = require('../catalog');
 
 // Aggregate collection stats, for the shelf hub. Must stay above the
 // '/:type' route below -- Express matches in declaration order, and a
@@ -67,20 +66,17 @@ router.get('/:type', async (req, res) => {
       return res.status(404).json({ error: 'Type not found or no cards' });
     }
 
-    const dedupedCards = catalog.cards;
-
     // Get owned printings (id, art, quantity)
     db.all('SELECT scryfall_id, illustration_id, quantity FROM owned_cards', (err, owned) => {
       if (err) {
         return res.status(500).json({ error: 'Database error' });
       }
 
-      // Same category scoping as /api/cards/search
-      const ownedIndex = buildOwnedIndex(owned.filter(row => catalog.printingIds.has(row.scryfall_id)));
-      // "Owned" here means "this art is owned" (a presence check), not a
-      // summed quantity -- keeps totals counting distinct arts, matching
+      // "Owned" here means "this art is owned" (a presence check, not a
+      // summed quantity) -- keeps totals counting distinct arts, matching
       // what /api/cards/search's total/owned-count represent.
-      const isOwned = card => getOwned(card, ownedIndex) > 0;
+      const dedupedCards = annotateOwned(catalog, owned);
+      const isOwned = card => card.owned > 0;
 
       // Calculate stats by rarity
       const byRarity = {};

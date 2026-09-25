@@ -2,8 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { scryfallFetch } = require('../scryfall');
-const { buildOwnedIndex, getOwned } = require('../artDedupe');
-const { CATEGORIES, buildCatalog } = require('../catalog');
+const { CATEGORIES, buildCatalog, annotateOwned } = require('../catalog');
 
 // Search cards from Scryfall with owned status.
 //   type      creature type (required)
@@ -37,16 +36,8 @@ router.get('/search', async (req, res) => {
         return res.status(500).json({ error: 'Database error' });
       }
 
-      // Only printings in this category count, so owning the regular
-      // printing of an art doesn't mark its Secret Lair twin as owned.
-      const ownedIndex = buildOwnedIndex(owned.filter(row => catalog.printingIds.has(row.scryfall_id)));
-
-      // Owned status is matched by art, so owning any reprint of the same
-      // illustration credits the surviving entry.
-      const cards = filteredCards.map(card => ({
-        ...card,
-        owned: getOwned(card, ownedIndex)
-      }));
+      // Owned status is matched by art, scoped to this category
+      const cards = annotateOwned(catalog, owned, filteredCards);
 
       res.json({
         total: cards.length,

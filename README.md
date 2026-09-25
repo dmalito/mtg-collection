@@ -92,6 +92,7 @@ mtg-collection/
 │   ├── test/            # API tests
 │   ├── artDedupe.js     # Art dedupe, Secret Lair detection, art-based owned matching
 │   ├── catalog.js       # Paged + cached Scryfall fetch, split into categories
+│   ├── checklist.js     # PDF checklist export (pdfkit)
 │   ├── db.js            # SQLite setup (DATA_DIR env for the db location)
 │   ├── scryfall.js      # Scryfall fetch wrapper (User-Agent)
 │   ├── server.js        # Express server
@@ -118,5 +119,6 @@ mtg-collection/
 - `PATCH /api/collection/:id` - Update card
 - `DELETE /api/collection/:id` - Remove card
 - `GET /api/types` - Get tracked creature types
+- `GET /api/export/checklist.pdf?type=dinosaur&upcoming=true` - PDF checklist of every category, split by rarity, owned cards ticked (also the "Export PDF checklist" link in the app header). Ignores the on-screen filters; `upcoming` optional
 - `GET /api/stats/summary` - Aggregate counts + cover image (for the shelf hub)
 - `GET /api/stats/:type` - Get collection statistics (takes the same `category` and `upcoming` params as search, so the numbers match the list)

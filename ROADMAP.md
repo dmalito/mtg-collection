@@ -34,3 +34,5 @@ Ideas noted for later, not yet built. Each item carries a priority from
   first page (175 of 306 dinosaur arts), lowest-rarity dedupe (needs every
   printing, not Scryfall's `unique=art`), and double-faced cards (no image,
   never deduped) (2026-09-25).
+- PDF checklist export: every category on its own page(s), split by rarity,
+  owned cards ticked (2026-09-25).

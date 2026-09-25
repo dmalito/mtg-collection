@@ -237,6 +237,7 @@
     }
   }
 
+  $: checklistUrl = `api/export/checklist.pdf?type=${encodeURIComponent(selectedType)}${showUpcoming ? '&upcoming=true' : ''}`;
   $: gridStyle = `grid-template-columns: repeat(${columns}, 1fr);`;
   $: ownedCount = cards.filter(c => c.owned > 0).length;
 </script>
@@ -246,6 +247,9 @@
     <div class="header-top">
       <h1>🃏 MTG Dinosaur Collection</h1>
       <a href="/dashboard" class="back-link">← Back to Dashboard</a>
+      <!-- Full checklist of every category with owned cards ticked; ignores the
+           on-screen filters, but follows the Upcoming toggle -->
+      <a href={checklistUrl} class="export-link" download>⬇ Export PDF checklist</a>
     </div>
 
     <!-- Search Bar -->
@@ -490,6 +494,20 @@
 
   .back-link:hover {
     color: #fff;
+  }
+
+  .export-link {
+    margin-left: 20px;
+    padding: 6px 14px;
+    background: #2a2a2a;
+    border-radius: 8px;
+    color: #fff;
+    text-decoration: none;
+    font-size: 0.9em;
+  }
+
+  .export-link:hover {
+    background: #667eea;
   }
 
   .search-bar {

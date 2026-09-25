@@ -481,3 +481,101 @@ test('catalog is cached: category switches do not re-download from Scryfall', as
   await call('GET', '/api/cards/search?type=dinosaur&rarity=rare&upcoming=true');
   assert.equal(scryfallHeaders.length, afterFirst);
 });
+
+// ── PDF checklist export ──────────────────────────────────────────────────
+
+const { buildChecklistModel } = require('../checklist');
+
+test('checklist model: sections per category, split by rarity in order, tokens ungrouped', () => {
+  const owned = (id, over) => card({ id, illustration_id: 'art-' + id, ...over });
+  const model = buildChecklistModel({
+    type: 'dinosaur',
+    generatedAt: '2026-09-25',
+    upcoming: false,
+    categories: [
+      {
+        id: 'main',
+        cards: [
+          { ...owned('m-rare', { name: 'Zed', rarity: 'rare' }), owned: 2 },
+          { ...owned('m-common-b', { name: 'Bravo', rarity: 'common' }), owned: 0 },
+          { ...owned('m-common-a', { name: 'Alpha', rarity: 'common' }), owned: 1 },
+          { ...owned('m-mythic', { name: 'Yak', rarity: 'mythic' }), owned: 0 },
+        ],
+      },
+      { id: 'secretlair', cards: [{ ...owned('s1', { rarity: 'mythic', set: 'sld' }), owned: 0 }] },
+      {
+        id: 'tokens',
+        cards: [
+          { ...owned('t1', { name: 'Dinosaur' }), owned: 1 },
+          { ...owned('t2', { name: 'Dinosaur Beast', rarity: 'common' }), owned: 0 },
+        ],
+      },
+    ],
+  });
+
+  assert.equal(model.title, 'Dinosaur checklist');
+  assert.equal(model.total, 7);
+  assert.equal(model.owned, 3);
+  assert.deepEqual(model.sections.map((s) => [s.label, s.owned, s.total]), [
+    ['Main', 2, 4],
+    ['Secret Lair', 0, 1],
+    ['Tokens', 1, 2],
+  ]);
+
+  const main = model.sections[0];
+  // common -> rare -> mythic, uncommon skipped because there are none
+  assert.deepEqual(main.groups.map((g) => [g.label, g.owned, g.total]), [
+    ['Common', 1, 2],
+    ['Rare', 1, 1],
+    ['Mythic', 0, 1],
+  ]);
+  // alphabetical within a rarity, quantity carried through
+  assert.deepEqual(main.groups[0].items.map((i) => i.name), ['Alpha', 'Bravo']);
+  assert.equal(main.groups[1].items[0].owned, 2);
+
+  // tokens are all common, so one unlabeled group
+  const tokens = model.sections[2];
+  assert.equal(tokens.groups.length, 1);
+  assert.equal(tokens.groups[0].label, null);
+});
+
+test('checklist model: empty category has no groups', () => {
+  const model = buildChecklistModel({
+    type: 'dinosaur',
+    generatedAt: '2026-09-25',
+    categories: [{ id: 'secretlair', cards: [] }],
+  });
+  assert.deepEqual(model.sections[0].groups, []);
+  assert.equal(model.total, 0);
+});
+
+test('export/checklist.pdf: requires type, returns a PDF download covering every category', async () => {
+  let r = await call('GET', '/api/export/checklist.pdf');
+  assert.equal(r.status, 400);
+
+  stubCatalog({
+    main: [
+      card({ id: 'reg', rarity: 'common', illustration_id: 'art-1' }),
+      card({ id: 'sld', rarity: 'rare', illustration_id: 'art-2', set: 'sld' }),
+    ],
+    tokens: [card({ id: 'tok', illustration_id: 'art-tok', set: 'tmom' })],
+    single: card({ id: 'reg', illustration_id: 'art-1' }),
+  });
+  await call('POST', '/api/collection', { scryfallId: 'reg' });
+
+  const res = await realFetch(`${base}/api/export/checklist.pdf?type=dinosaur`);
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('content-type'), 'application/pdf');
+  assert.match(res.headers.get('content-disposition'), /attachment; filename="mtg-dinosaur-checklist-\d{4}-\d{2}-\d{2}\.pdf"/);
+
+  const bytes = Buffer.from(await res.arrayBuffer());
+  assert.equal(bytes.subarray(0, 5).toString(), '%PDF-');
+  assert.ok(bytes.length > 1000);
+  assert.ok(bytes.subarray(-1024).toString('latin1').includes('%%EOF'));
+});
+
+test('export/checklist.pdf: passes Scryfall errors through instead of sending a broken PDF', async () => {
+  stubScryfall(() => ({ status: 503, body: {} }));
+  const r = await call('GET', '/api/export/checklist.pdf?type=dinosaur');
+  assert.equal(r.status, 503);
+});

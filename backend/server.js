@@ -16,6 +16,7 @@ app.use('/api/cards', require('./routes/cards'));
 app.use('/api/collection', require('./routes/collection'));
 app.use('/api/types', require('./routes/types'));
 app.use('/api/stats', require('./routes/stats'));
+app.use('/api/export', require('./routes/export'));
 
 // Health check
 app.get('/api/health', (req, res) => {

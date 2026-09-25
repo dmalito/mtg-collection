@@ -12,7 +12,7 @@
 // its art; each list is its own collection.
 
 const { scryfallSearchAll } = require('./scryfall');
-const { dedupeByArt, isSecretLair, isUpcoming } = require('./artDedupe');
+const { dedupeByArt, isSecretLair, isUpcoming, buildOwnedIndex, getOwned } = require('./artDedupe');
 
 const CATEGORIES = ['main', 'secretlair', 'tokens'];
 
@@ -87,4 +87,12 @@ async function buildCatalog({ type, category = 'main', upcoming = false }) {
   };
 }
 
-module.exports = { CATEGORIES, buildCatalog, clearCatalogCache };
+// Attach `.owned` (quantity, matched by art) to cards. Only owned printings
+// that belong to this catalog's category count, so owning the regular
+// printing of an art doesn't mark its Secret Lair twin as owned.
+function annotateOwned(catalog, ownedRows, cards = catalog.cards) {
+  const index = buildOwnedIndex(ownedRows.filter((row) => catalog.printingIds.has(row.scryfall_id)));
+  return cards.map((card) => ({ ...card, owned: getOwned(card, index) }));
+}
+
+module.exports = { CATEGORIES, buildCatalog, annotateOwned, clearCatalogCache };
