@@ -12,6 +12,7 @@
 
 const db = require('../db');
 const { scryfallFetch } = require('../scryfall');
+const { artIdOf } = require('../artDedupe');
 
 const DELAY_MS = 100; // polite pacing between Scryfall requests
 
@@ -48,7 +49,7 @@ async function main() {
       } else {
         const card = await response.json();
         await run('UPDATE owned_cards SET illustration_id = ? WHERE id = ?', [
-          card.illustration_id || null,
+          artIdOf(card),
           row.id
         ]);
         updated += 1;

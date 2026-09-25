@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { scryfallFetch } = require('../scryfall');
+const { artIdOf } = require('../artDedupe');
 
 // Get all owned cards
 router.get('/', (req, res) => {
@@ -49,7 +50,7 @@ router.post('/', async (req, res) => {
       quantity,
       condition,
       notes,
-      card.illustration_id
+      artIdOf(card)
     ], function(err) {
       if (err) {
         console.error('Database error:', err);

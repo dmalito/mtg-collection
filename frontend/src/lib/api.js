@@ -3,15 +3,12 @@ const API_BASE = 'api';
 
 export const api = {
   // Cards
-  async searchCards(type, rarity = null, includeTokens = false) {
-    let url = `${API_BASE}/cards/search?type=${type}`;
-    if (rarity) {
-      url += `&rarity=${rarity}`;
-    }
-    if (includeTokens) {
-      url += `&includeTokens=true`;
-    }
-    const res = await fetch(url);
+  // category: 'main' | 'secretlair' | 'tokens'; upcoming: include unreleased cards
+  async searchCards(type, { rarity = null, category = 'main', upcoming = false } = {}) {
+    const params = new URLSearchParams({ type, category });
+    if (rarity) params.set('rarity', rarity);
+    if (upcoming) params.set('upcoming', 'true');
+    const res = await fetch(`${API_BASE}/cards/search?${params}`);
     if (!res.ok) throw new Error('Failed to fetch cards');
     return res.json();
   },

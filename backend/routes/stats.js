@@ -2,7 +2,8 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { scryfallFetch } = require('../scryfall');
-const { dedupeByArt, buildOwnedIndex, getOwned, buildTypeQuery } = require('../artDedupe');
+const { buildOwnedIndex, getOwned } = require('../artDedupe');
+const { CATEGORIES, buildCatalog } = require('../catalog');
 
 // Aggregate collection stats, for the shelf hub. Must stay above the
 // '/:type' route below -- Express matches in declaration order, and a
@@ -48,27 +49,25 @@ router.get('/summary', (req, res) => {
   );
 });
 
-// Get collection stats for a specific type
+// Get collection stats for a specific type. Takes the same category and
+// upcoming params as /api/cards/search, so its numbers match what that list
+// shows (defaults: main category, released cards only).
 router.get('/:type', async (req, res) => {
   const { type } = req.params;
-  const { includeTokens } = req.query;
+  const { category = 'main', upcoming } = req.query;
+
+  if (!CATEGORIES.includes(category)) {
+    return res.status(400).json({ error: `category must be one of: ${CATEGORIES.join(', ')}` });
+  }
 
   try {
-    // Same query builder as /api/cards/search, so the two endpoints can't
-    // silently disagree on which cards are in scope for a type.
-    const query = buildTypeQuery({ type, includeTokens });
-    const scryfallUrl = `https://api.scryfall.com/cards/search?q=${encodeURIComponent(query)}&unique=art`;
+    const catalog = await buildCatalog({ type, category, upcoming: upcoming === 'true' });
 
-    const response = await scryfallFetch(scryfallUrl);
-
-    if (!response.ok) {
+    if (!catalog.hasCards) {
       return res.status(404).json({ error: 'Type not found or no cards' });
     }
 
-    const data = await response.json();
-
-    // Same dedupe as /api/cards/search -- one entry per unique art
-    const dedupedCards = dedupeByArt(data.data);
+    const dedupedCards = catalog.cards;
 
     // Get owned printings (id, art, quantity)
     db.all('SELECT scryfall_id, illustration_id, quantity FROM owned_cards', (err, owned) => {
@@ -76,7 +75,8 @@ router.get('/:type', async (req, res) => {
         return res.status(500).json({ error: 'Database error' });
       }
 
-      const ownedIndex = buildOwnedIndex(owned);
+      // Same category scoping as /api/cards/search
+      const ownedIndex = buildOwnedIndex(owned.filter(row => catalog.printingIds.has(row.scryfall_id)));
       // "Owned" here means "this art is owned" (a presence check), not a
       // summed quantity -- keeps totals counting distinct arts, matching
       // what /api/cards/search's total/owned-count represent.
@@ -93,7 +93,7 @@ router.get('/:type', async (req, res) => {
         byRarity[rarity] = {
           total: cardsOfRarity.length,
           owned: ownedOfRarity.length,
-          percentage: cardsOfRarity.length > 0
+          percentage: cardsOfRarity.length > 0 
             ? Math.round((ownedOfRarity.length / cardsOfRarity.length) * 100)
             : 0
         };
@@ -103,6 +103,7 @@ router.get('/:type', async (req, res) => {
 
       res.json({
         type,
+        category,
         total: dedupedCards.length,
         owned: ownedCount,
         percentage: dedupedCards.length > 0

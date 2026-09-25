@@ -6,6 +6,10 @@
   let types = [];
   let selectedType = 'dinosaur';
   let selectedRarity = null;
+  let category = 'main'; // 'main', 'secretlair', 'tokens'
+  let showUpcoming = false; // include not-yet-released cards
+  let counts = { main: 0, secretlair: 0, tokens: 0 };
+  let upcomingCount = 0;
   let cards = [];
   let filteredCards = [];
   let loading = false;
@@ -18,20 +22,28 @@
   let ownershipFilter = 'all'; // 'all', 'owned', 'missing'
   let sortBy = 'release'; // 'release', 'price', 'artist', 'name'
   let sortDirection = 'desc'; // 'asc' or 'desc'
-  let includeTokens = false; // New: toggle for tokens
 
   const rarities = ['common', 'uncommon', 'rare', 'mythic'];
+  const categories = [
+    { id: 'main', label: 'Main' },
+    { id: 'secretlair', label: 'Secret Lair' },
+    { id: 'tokens', label: 'Tokens' }
+  ];
   const columnOptions = [2, 3, 4, 5, 6];
 
   onMount(async () => {
-    await loadTypes();
-    await loadCards();
+    // Saved preferences first, so the first load already uses them
     const savedColumns = localStorage.getItem('mtg-columns');
     const savedViewMode = localStorage.getItem('mtg-viewMode');
-    const savedIncludeTokens = localStorage.getItem('mtg-includeTokens');
+    const savedCategory = localStorage.getItem('mtg-category');
+    const savedUpcoming = localStorage.getItem('mtg-showUpcoming');
     if (savedColumns) columns = parseInt(savedColumns);
     if (savedViewMode) viewMode = savedViewMode;
-    if (savedIncludeTokens) includeTokens = savedIncludeTokens === 'true';
+    if (categories.some(c => c.id === savedCategory)) category = savedCategory;
+    if (savedUpcoming) showUpcoming = savedUpcoming === 'true';
+
+    await loadTypes();
+    await loadCards();
   });
 
   async function loadTypes() {
@@ -48,12 +60,16 @@
   async function loadCards() {
     loading = true;
     error = null;
-    console.log('Loading cards:', { selectedType, selectedRarity, includeTokens });
-    
+
     try {
-      const result = await api.searchCards(selectedType, selectedRarity, includeTokens);
-      console.log('Received cards:', result.cards.length);
+      const result = await api.searchCards(selectedType, {
+        rarity: selectedRarity,
+        category,
+        upcoming: showUpcoming
+      });
       cards = result.cards || [];
+      counts = result.counts || counts;
+      upcomingCount = result.upcomingCount || 0;
       applyFilters();
     } catch (e) {
       error = 'Failed to load cards. Make sure the backend is running.';
@@ -87,6 +103,19 @@
     loadCards();
   }
 
+  function selectCategory(id) {
+    category = id;
+    selectedRarity = null; // tokens are all common, and rarity means little across lists
+    localStorage.setItem('mtg-category', id);
+    loadCards();
+  }
+
+  function toggleUpcoming() {
+    showUpcoming = !showUpcoming;
+    localStorage.setItem('mtg-showUpcoming', showUpcoming);
+    loadCards();
+  }
+
   function selectType(type) {
     selectedType = type;
     selectedRarity = null;
@@ -107,12 +136,6 @@
   function toggleSortDirection() {
     sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
     applyFilters();
-  }
-
-  function toggleTokens() {
-    includeTokens = !includeTokens;
-    localStorage.setItem('mtg-includeTokens', includeTokens);
-    loadCards();
   }
 
   function applyFilters() {
@@ -216,7 +239,6 @@
 
   $: gridStyle = `grid-template-columns: repeat(${columns}, 1fr);`;
   $: ownedCount = cards.filter(c => c.owned > 0).length;
-  $: tokenCount = cards.filter(c => c.type_line?.toLowerCase().includes('token')).length;
 </script>
 
 <main>
@@ -239,6 +261,20 @@
       {/if}
     </div>
 
+    <!-- Category Tabs -->
+    <div class="category-tabs">
+      {#each categories as cat}
+        <button
+          class="category-tab"
+          class:active={category === cat.id}
+          on:click={() => selectCategory(cat.id)}
+        >
+          {cat.label}
+          <span class="tab-count">{counts[cat.id]}</span>
+        </button>
+      {/each}
+    </div>
+
     <!-- Filters Bar -->
     <div class="filters-bar">
       <!-- Creature Types -->
@@ -257,7 +293,8 @@
         </div>
       </div>
 
-      <!-- Rarity Filter -->
+      <!-- Rarity Filter (tokens are all common, so it's pointless there) -->
+      {#if category !== 'tokens'}
       <div class="filter-group">
         <label>Rarity:</label>
         <div class="button-group">
@@ -279,6 +316,7 @@
           {/each}
         </div>
       </div>
+      {/if}
 
       <!-- Ownership Filter -->
       <div class="filter-group">
@@ -308,20 +346,19 @@
         </div>
       </div>
 
-      <!-- Tokens Toggle -->
+      <!-- Upcoming Toggle -->
       <div class="filter-group">
-        <label>
-          <input 
-            type="checkbox" 
-            bind:checked={includeTokens}
-            on:change={toggleTokens}
-            class="token-checkbox"
-          />
-          Include Tokens
-          {#if tokenCount > 0}
-            <span class="token-count">({tokenCount})</span>
+        <button
+          class="filter-btn upcoming-toggle"
+          class:active={showUpcoming}
+          on:click={toggleUpcoming}
+          title={showUpcoming ? 'Hide cards that are not released yet' : 'Show cards that are not released yet'}
+        >
+          Upcoming
+          {#if upcomingCount > 0}
+            <span class="toggle-count">({upcomingCount})</span>
           {/if}
-        </label>
+        </button>
       </div>
 
       <!-- Sort with Direction Toggle -->
@@ -532,16 +569,50 @@
     gap: 8px;
   }
 
-  .token-checkbox {
-    width: 18px;
-    height: 18px;
-    cursor: pointer;
-    accent-color: #667eea;
+  .category-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 15px;
+    flex-wrap: wrap;
   }
 
-  .token-count {
-    color: #667eea;
+  .category-tab {
+    padding: 10px 22px;
+    background: #1a1a1a;
+    border: 2px solid #2a2a2a;
+    border-radius: 10px;
+    color: #ccc;
+    cursor: pointer;
+    font-size: 1em;
+    font-weight: 600;
+    transition: all 0.2s;
+  }
+
+  .category-tab:hover {
+    background: #2a2a2a;
+    color: #fff;
+  }
+
+  .category-tab.active {
+    background: #667eea;
+    border-color: #667eea;
+    color: #fff;
+  }
+
+  .tab-count {
+    margin-left: 6px;
     font-weight: normal;
+    opacity: 0.7;
+  }
+
+  .filter-btn.upcoming-toggle.active {
+    background: #f0a020;
+    border-color: #f0a020;
+    color: #000;
+  }
+
+  .toggle-count {
+    opacity: 0.75;
   }
 
   .button-group {

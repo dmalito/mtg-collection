@@ -28,3 +28,9 @@ Ideas noted for later, not yet built. Each item carries a priority from
   rarity wins), with a rarity filter applied after that collapse instead of
   before it, and owned status matched by art instead of by exact printing
   (2026-09-24).
+- Categories and upcoming toggle: Secret Lair printings and tokens are their
+  own lists (tabs with counts), and not-yet-released cards are hidden behind
+  an "Upcoming" toggle. Also fixed the list being cut off at Scryfall's
+  first page (175 of 306 dinosaur arts), lowest-rarity dedupe (needs every
+  printing, not Scryfall's `unique=art`), and double-faced cards (no image,
+  never deduped) (2026-09-25).

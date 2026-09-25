@@ -3,7 +3,9 @@
   export let onToggleOwned;
   export let compact = false;
 
-  $: imageUrl = card.image_uris?.normal || card.image_uris?.small || '';
+  // Double-faced cards keep their images on the faces, not the card
+  $: images = card.image_uris || card.card_faces?.[0]?.image_uris;
+  $: imageUrl = images?.normal || images?.small || '';
   $: isOwned = card.owned > 0;
 
   function handleClick() {
@@ -25,6 +27,10 @@
       ✓ {card.owned}
     </div>
   </div>
+
+  {#if card.upcoming}
+    <div class="upcoming-badge" title="Releases {card.released_at}">Upcoming</div>
+  {/if}
 
   {#if !compact}
     <div class="card-info">
@@ -113,6 +119,27 @@
 
   .owned-badge.visible {
     opacity: 1;
+  }
+
+  .upcoming-badge {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    background: #f0a020;
+    color: #000;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-weight: bold;
+    font-size: 0.75em;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .card.compact .upcoming-badge {
+    top: 5px;
+    left: 5px;
+    padding: 2px 6px;
+    font-size: 0.65em;
   }
 
   .card.compact .owned-badge {

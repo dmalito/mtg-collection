@@ -23,7 +23,7 @@ ENV DATA_DIR=/app/data
 COPY backend/package*.json ./
 RUN npm ci --omit=dev
 
-COPY backend/db.js backend/scryfall.js backend/artDedupe.js backend/server.js ./
+COPY backend/db.js backend/scryfall.js backend/artDedupe.js backend/catalog.js backend/server.js ./
 COPY backend/routes/ ./routes/
 COPY backend/scripts/ ./scripts/
 

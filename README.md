@@ -58,15 +58,30 @@ Uses Node's built-in test runner against a temp db, with Scryfall stubbed.
   `backend/scryfall.js`, never call `fetch` on Scryfall directly.
 - The frontend is built with a relative Vite `base` and a relative API path,
   so it works at `/` or behind any path prefix.
-- Search and stats collapse reprints of the same art down to one entry
-  (`backend/artDedupe.js`), keeping the lowest-rarity printing. A `rarity`
-  filter is applied *after* that collapse, to the surviving printing's own
-  rarity -- so it means "this art's cheapest printing is this rarity," not
-  "Scryfall has a printing at this rarity." Owned status is matched by art
-  (any printing you own of that art counts), not by exact printing, via an
-  `illustration_id` column on `owned_cards`. Rows added before that column
-  existed need a one-time backfill: `docker compose exec mtg-collection node
-  scripts/backfill-illustration-id.js`.
+- Cards are fetched with `unique=prints` and **every page** (Scryfall caps a
+  search at 175 cards per page -- reading only page 1 silently drops the
+  rest), then collapsed to one entry per art in `backend/artDedupe.js`,
+  keeping the lowest-rarity printing. `unique=art` is deliberately not used:
+  it makes Scryfall pick an arbitrary printing per art first, so there'd be
+  no lower-rarity one left to prefer. Results are cached in memory for 10
+  minutes (`backend/catalog.js`).
+- Three categories, split *before* dedupe (so each is its own collection):
+  `main`, `secretlair` (any Secret Lair set, whatever the rarity -- see
+  `SECRET_LAIR_SETS`), and `tokens`. Owned status is scoped to the category,
+  so owning the regular printing of an art doesn't mark its Secret Lair twin
+  as owned.
+- Not-yet-released cards (Scryfall lists spoilers with a future
+  `released_at`) are hidden unless `upcoming=true`. They're filtered out
+  *before* dedupe, so an unreleased cheaper reprint can't displace the
+  released printing.
+- A `rarity` filter is applied *after* dedupe, to the surviving printing's
+  own rarity -- "this art's cheapest printing is this rarity", not "Scryfall
+  has a printing at this rarity".
+- Owned status is matched by art (any printing you own of that art counts),
+  not by exact printing, via an `illustration_id` column on `owned_cards`
+  (double-faced cards use their front face's art). Rows added before that
+  column existed need a one-time backfill: `docker compose exec
+  mtg-collection node scripts/backfill-illustration-id.js`.
 
 ## Project Structure
 ```
@@ -75,7 +90,8 @@ mtg-collection/
 │   ├── routes/          # API routes
 │   ├── scripts/         # One-off maintenance scripts (e.g. backfill)
 │   ├── test/            # API tests
-│   ├── artDedupe.js     # Art dedupe + art-based owned matching (shared)
+│   ├── artDedupe.js     # Art dedupe, Secret Lair detection, art-based owned matching
+│   ├── catalog.js       # Paged + cached Scryfall fetch, split into categories
 │   ├── db.js            # SQLite setup (DATA_DIR env for the db location)
 │   ├── scryfall.js      # Scryfall fetch wrapper (User-Agent)
 │   ├── server.js        # Express server
@@ -96,11 +112,11 @@ mtg-collection/
 
 ## Backend API
 
-- `GET /api/cards/search?type=dinosaur&rarity=rare` - Search cards (one printing per art)
+- `GET /api/cards/search?type=dinosaur&category=main&rarity=rare&upcoming=true` - Search cards (one printing per art). `category`: `main` (default) | `secretlair` | `tokens`; `rarity` and `upcoming` optional. Response includes `counts` per category and `upcomingCount`.
 - `GET /api/collection` - Get owned cards
 - `POST /api/collection` - Add card to collection
 - `PATCH /api/collection/:id` - Update card
 - `DELETE /api/collection/:id` - Remove card
 - `GET /api/types` - Get tracked creature types
 - `GET /api/stats/summary` - Aggregate counts + cover image (for the shelf hub)
-- `GET /api/stats/:type` - Get collection statistics
+- `GET /api/stats/:type` - Get collection statistics (takes the same `category` and `upcoming` params as search, so the numbers match the list)
