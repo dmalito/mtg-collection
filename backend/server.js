@@ -17,6 +17,8 @@ app.use('/api/collection', require('./routes/collection'));
 app.use('/api/types', require('./routes/types'));
 app.use('/api/stats', require('./routes/stats'));
 app.use('/api/export', require('./routes/export'));
+// Defines /api/binders/summary and /api/binder/:name for the shelf hub
+app.use('/api', require('./routes/binder'));
 
 // Health check
 app.get('/api/health', (req, res) => {

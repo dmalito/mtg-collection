@@ -34,13 +34,14 @@ router.post('/', async (req, res) => {
 
     // Insert or update in database
     db.run(`
-      INSERT INTO owned_cards (scryfall_id, name, set_code, collector_number, rarity, quantity, condition, notes, illustration_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO owned_cards (scryfall_id, name, set_code, collector_number, rarity, quantity, condition, notes, illustration_id, released_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(scryfall_id) DO UPDATE SET
         quantity = quantity + excluded.quantity,
         condition = excluded.condition,
         notes = excluded.notes,
-        illustration_id = excluded.illustration_id
+        illustration_id = excluded.illustration_id,
+        released_at = excluded.released_at
     `, [
       scryfallId,
       card.name,
@@ -50,7 +51,8 @@ router.post('/', async (req, res) => {
       quantity,
       condition,
       notes,
-      artIdOf(card)
+      artIdOf(card),
+      card.released_at || null
     ], function(err) {
       if (err) {
         console.error('Database error:', err);

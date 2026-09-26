@@ -8,8 +8,10 @@ const HEADERS = {
 // Scryfall asks for 50-100ms between requests
 const PAGE_DELAY_MS = Number(process.env.SCRYFALL_DELAY_MS ?? 100);
 
-function scryfallFetch(url) {
-  return fetch(url, { headers: HEADERS });
+// `init` takes normal fetch options (e.g. a POST body); the required
+// User-Agent/Accept headers are always kept, other headers are merged in.
+function scryfallFetch(url, init = {}) {
+  return fetch(url, { ...init, headers: { ...HEADERS, ...(init.headers || {}) } });
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

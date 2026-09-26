@@ -20,17 +20,23 @@ db.serialize(() => {
       condition TEXT DEFAULT 'NM',
       acquired_at TEXT DEFAULT (datetime('now')),
       notes TEXT,
-      illustration_id TEXT
+      illustration_id TEXT,
+      released_at TEXT
     )
   `);
 
-  // Migration for databases created before illustration_id existed --
-  // lets art-based owned matching (see artDedupe.js) work on rows added
-  // before this column was introduced, once backfilled.
+  // Migrations for databases created before a column existed.
+  //  - illustration_id lets art-based owned matching (see artDedupe.js) work
+  //    on rows added before it, once backfilled.
+  //  - released_at orders the binder view (routes/binder.js), which fills it
+  //    in lazily from Scryfall for rows that predate it.
   db.all("PRAGMA table_info(owned_cards)", (err, columns) => {
     if (err) return;
     if (!columns.some((c) => c.name === 'illustration_id')) {
       db.run('ALTER TABLE owned_cards ADD COLUMN illustration_id TEXT');
+    }
+    if (!columns.some((c) => c.name === 'released_at')) {
+      db.run('ALTER TABLE owned_cards ADD COLUMN released_at TEXT');
     }
   });
 

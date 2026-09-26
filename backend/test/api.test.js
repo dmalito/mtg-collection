@@ -29,7 +29,7 @@ before(async () => {
   globalThis.fetch = async (url, opts) => {
     if (String(url).startsWith('https://api.scryfall.com')) {
       scryfallHeaders.push(opts && opts.headers);
-      const { status, body } = scryfall(String(url));
+      const { status, body } = scryfall(String(url), opts);
       return { ok: status >= 200 && status < 300, status, json: async () => body };
     }
     return realFetch(url, opts);
@@ -606,4 +606,163 @@ test('export/checklist.pdf: passes Scryfall errors through instead of sending a 
   stubScryfall(() => ({ status: 503, body: {} }));
   const r = await call('GET', '/api/export/checklist.pdf?type=dinosaur');
   assert.equal(r.status, 503);
+});
+
+// --- binder view (served to the shelf hub) --------------------------------
+
+// Insert owned rows straight into the db, so binder tests don't need Scryfall.
+async function addOwned(rows) {
+  for (const r of rows) {
+    await new Promise((resolve, reject) => {
+      db.run(
+        `INSERT INTO owned_cards (scryfall_id, name, set_code, collector_number, rarity, quantity, released_at)
+         VALUES (?, ?, ?, ?, 'common', ?, ?)`,
+        [r.id, r.name ?? r.id, r.set ?? 'xln', r.number ?? '1', r.quantity ?? 1, r.released ?? null],
+        (err) => (err ? reject(err) : resolve())
+      );
+    });
+  }
+}
+
+const BINDER_URL = '/api/binder/' + encodeURIComponent('MTG Collection');
+
+test('collection: the release date is stored on add', async () => {
+  stubScryfall(() => ({ status: 200, body: card({ released_at: '2018-01-19' }) }));
+  await call('POST', '/api/collection', { scryfallId: 'id-1' });
+  const row = await dbGet('SELECT released_at FROM owned_cards WHERE scryfall_id = ?', ['id-1']);
+  assert.equal(row.released_at, '2018-01-19');
+});
+
+test('binders/summary: one binder sized to the owned cards, without touching Scryfall', async () => {
+  let scryfallCalls = 0;
+  stubScryfall(() => {
+    scryfallCalls += 1;
+    return { status: 500, body: {} };
+  });
+  await addOwned(Array.from({ length: 10 }, (_, i) => ({ id: `c${i}`, released: '2020-01-01' })));
+
+  const r = await call('GET', '/api/binders/summary');
+  assert.equal(r.status, 200);
+  assert.equal(r.body.binders.length, 1);
+  const [b] = r.body.binders;
+  assert.equal(b.name, 'MTG Collection');
+  assert.equal(b.cards, 10);
+  assert.equal(b.pages, 2); // 3 x 3 pockets -> 9 per page
+  assert.match(b.color, /^#[0-9a-f]{6}$/i);
+  assert.equal(b.link, '/');
+  assert.equal(scryfallCalls, 0);
+});
+
+test('binders/summary: an empty collection is a binder with no pages', async () => {
+  const r = await call('GET', '/api/binders/summary');
+  assert.equal(r.body.binders[0].cards, 0);
+  assert.equal(r.body.binders[0].pages, 0);
+});
+
+test('binder: 3x3 pages, last page padded, oldest release first, collector numbers numeric', async () => {
+  await addOwned([
+    { id: 'late', released: '2021-05-01', number: '5', name: 'Late' },
+    { id: 'tenth', released: '2019-01-01', number: '10', name: 'Tenth' },
+    { id: 'second', released: '2019-01-01', number: '2', name: 'Second', quantity: 3, set: 'rix' },
+  ]);
+
+  const r = await call('GET', BINDER_URL);
+  assert.equal(r.status, 200);
+  assert.equal(r.body.name, 'MTG Collection');
+  assert.equal(r.body.aspect_w, 63);
+  assert.equal(r.body.aspect_h, 88);
+  assert.equal(r.body.pages.length, 1);
+
+  const page = r.body.pages[0];
+  assert.equal(page.page, 1);
+  assert.equal(page.cols, 3);
+  assert.equal(page.cards.length, 9);
+  assert.deepEqual(page.cards.slice(0, 3).map((c) => c.name), ['Second', 'Tenth', 'Late']);
+  assert.ok(page.cards.slice(3).every((c) => c === null), 'rest of the page is empty pockets');
+
+  const second = page.cards[0];
+  assert.equal(second.id, 'second');
+  assert.equal(second.set, 'RIX');
+  assert.equal(second.number, '2');
+  assert.equal(second.notes, '3 copies');
+  assert.equal(second.image, 'https://api.scryfall.com/cards/second?format=image&version=normal');
+  assert.equal(page.cards[1].notes, null);
+});
+
+test('binder: more than nine cards spill onto further pages', async () => {
+  await addOwned(Array.from({ length: 10 }, (_, i) => ({ id: `c${i}`, released: '2020-01-01', number: String(i + 1) })));
+
+  const r = await call('GET', BINDER_URL);
+  assert.equal(r.body.pages.length, 2);
+  assert.deepEqual(r.body.pages.map((p) => p.page), [1, 2]);
+  assert.equal(r.body.pages[0].cards.filter(Boolean).length, 9);
+  assert.equal(r.body.pages[1].cards.filter(Boolean).length, 1);
+  assert.equal(r.body.pages[1].cards.length, 9);
+});
+
+test('binder: undated cards get their release date from Scryfall (batched, persisted) and are ordered by it', async () => {
+  await addOwned([{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }, { id: 'c', name: 'C' }]);
+
+  const requests = [];
+  const dates = { a: '2022-01-01', b: '2018-06-01', c: '2020-03-01' };
+  stubScryfall((url, opts) => {
+    requests.push({ url, opts });
+    const { identifiers } = JSON.parse(opts.body);
+    return {
+      status: 200,
+      body: { data: identifiers.map(({ id }) => ({ id, released_at: dates[id] })), not_found: [] },
+    };
+  });
+
+  const r = await call('GET', BINDER_URL);
+  assert.deepEqual(r.body.pages[0].cards.filter(Boolean).map((c) => c.name), ['B', 'C', 'A']);
+
+  assert.equal(requests.length, 1, 'three cards fit in one batch');
+  assert.equal(requests[0].url, 'https://api.scryfall.com/cards/collection');
+  assert.equal(requests[0].opts.method, 'POST');
+  assert.ok(requests[0].opts.headers['User-Agent'], 'still sends the custom User-Agent');
+  assert.deepEqual(JSON.parse(requests[0].opts.body).identifiers, [{ id: 'a' }, { id: 'b' }, { id: 'c' }]);
+
+  const row = await dbGet('SELECT released_at FROM owned_cards WHERE scryfall_id = ?', ['b']);
+  assert.equal(row.released_at, '2018-06-01');
+
+  // Now every row is dated, so a second view needs no Scryfall call at all
+  requests.length = 0;
+  await call('GET', BINDER_URL);
+  assert.equal(requests.length, 0);
+});
+
+test('binder: backfill goes through Scryfall in batches of 75', async () => {
+  await addOwned(Array.from({ length: 80 }, (_, i) => ({ id: `c${i}` })));
+
+  const batchSizes = [];
+  stubScryfall((url, opts) => {
+    const { identifiers } = JSON.parse(opts.body);
+    batchSizes.push(identifiers.length);
+    return {
+      status: 200,
+      body: { data: identifiers.map(({ id }) => ({ id, released_at: '2020-01-01' })) },
+    };
+  });
+
+  const r = await call('GET', BINDER_URL);
+  assert.deepEqual(batchSizes, [75, 5]);
+  assert.equal(r.body.pages.length, 9); // 80 cards, 9 per page
+});
+
+test('binder: if Scryfall is down the cards still show, undated ones last', async () => {
+  await addOwned([
+    { id: 'undated', name: 'Undated', number: '1' },
+    { id: 'dated', name: 'Dated', number: '9', released: '2020-01-01' },
+  ]);
+  stubScryfall(() => ({ status: 503, body: {} }));
+
+  const r = await call('GET', BINDER_URL);
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.pages[0].cards.filter(Boolean).map((c) => c.name), ['Dated', 'Undated']);
+});
+
+test('binder: unknown binder name 404s', async () => {
+  const r = await call('GET', '/api/binder/Nope');
+  assert.equal(r.status, 404);
 });

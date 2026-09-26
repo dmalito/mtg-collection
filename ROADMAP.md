@@ -5,13 +5,6 @@ Ideas noted for later, not yet built. Each item carries a priority from
 
 ## Upcoming
 
-- (P3) **Show the MTG dinosaur collection in a binder**: view the owned
-  dinosaur cards laid out as binder pages, like the physical binders in the
-  card catalogue, instead of only the search/grid list. Open questions for
-  when this is picked up: whether it lives in this app or on the shelf hub
-  (which currently has no MTG entry -- see `shelf/README.md`), and how to
-  page/order the cards (by set, release date, rarity). `/api/stats/summary`
-  already exists as a starting point for the hub side.
 - (P4) **Fix the owned-toggle for multi-printing art**: `App.svelte`'s
   unown button removes by the deduped entry's exact `scryfall_id`, but
   `owned` can now be a sum across several printings of the same art (see
@@ -36,3 +29,9 @@ Ideas noted for later, not yet built. Each item carries a priority from
   never deduped) (2026-09-25).
 - PDF checklist export: every category on its own page(s), split by rarity,
   owned cards ticked (2026-09-25).
+- The owned cards as a 3 x 3 binder on the shelf hub (`shelf/`, :5004):
+  this app serves `GET /api/binders/summary` and `GET /api/binder/<name>` in
+  the same shape as the card catalogue's binders, oldest release first
+  (`released_at` is stored on add and backfilled from Scryfall on first
+  view), and the shelf shows it as a spine with its one-page-at-a-time
+  viewer (2026-09-26).
